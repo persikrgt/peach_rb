@@ -6,6 +6,10 @@ local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
+-- Ожидаем загрузки персонажа
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
 -- Создаем основное меню
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "GameMenuGui"
@@ -26,7 +30,7 @@ toggleButton.Parent = screenGui
 -- Создаем основное меню (изначально скрытое)
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainMenuFrame"
-mainFrame.Size = UDim2.new(0, 200, 0, 300)
+mainFrame.Size = UDim2.new(0, 200, 0, 250)
 mainFrame.Position = UDim2.new(0, 20, 0, 75)
 mainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 mainFrame.Visible = false
@@ -44,6 +48,11 @@ titleLabel.Font = Enum.Font.SourceSansBold
 titleLabel.TextSize = 18
 titleLabel.Parent = mainFrame
 
+-- Переменные для функций
+local autoJumpEnabled = false
+local jumpConnection = nil
+local autoJumpButton = nil
+
 -- Функция для создания кнопок в меню
 local function createMenuButton(name, text, position, callback)
     local button = Instance.new("TextButton")
@@ -58,9 +67,6 @@ local function createMenuButton(name, text, position, callback)
     button.Parent = mainFrame
     
     button.MouseButton1Click:Connect(callback)
-    button.TouchTap:Connect(function()
-        callback()
-    end)
     
     -- Анимация при наведении
     button.MouseEnter:Connect(function()
@@ -73,10 +79,12 @@ local function createMenuButton(name, text, position, callback)
     end)
     
     button.MouseLeave:Connect(function()
+        local color = autoJumpEnabled and button.Name == "AutoJumpButton" and 
+                     Color3.fromRGB(50, 205, 50) or Color3.fromRGB(65, 105, 225)
         local tween = TweenService:Create(
             button,
             TweenInfo.new(0.2),
-            {BackgroundColor3 = Color3.fromRGB(65, 105, 225)}
+            {BackgroundColor3 = color}
         )
         tween:Play()
     end)
@@ -84,19 +92,12 @@ local function createMenuButton(name, text, position, callback)
     return button
 end
 
--- Переменные для функций
-local autoJumpEnabled = false
-local jumpConnection = nil
-
 -- Функция авто-прыжка
 local function toggleAutoJump()
     autoJumpEnabled = not autoJumpEnabled
     
     if autoJumpEnabled then
         -- Включаем авто-прыжки
-        local character = player.Character or player.CharacterAdded:Wait()
-        local humanoid = character:WaitForChild("Humanoid")
-        
         if jumpConnection then
             jumpConnection:Disconnect()
         end
@@ -124,22 +125,20 @@ end
 
 -- Создаем кнопки меню
 local buttonY = 40
-local autoJumpButton = createMenuButton("AutoJumpButton", "Авто-прыжок: ВЫКЛ", UDim2.new(0.05, 0, 0, buttonY), toggleAutoJump)
+autoJumpButton = createMenuButton("AutoJumpButton", "Авто-прыжок: ВЫКЛ", UDim2.new(0.05, 0, 0, buttonY), toggleAutoJump)
 buttonY = buttonY + 45
 
 -- Добавляем другие кнопки (заглушки для будущих функций)
-createMenuButton("Feature1Button", "Функция 1", UDim2.new(0.05, 0, 0, buttonY), function()
-    print("Функция 1 активирована")
+createMenuButton("SpeedButton", "Ускорение", UDim2.new(0.05, 0, 0, buttonY), function()
+    if humanoid then
+        humanoid.WalkSpeed = humanoid.WalkSpeed == 16 and 32 or 16
+    end
 end)
 buttonY = buttonY + 45
 
-createMenuButton("Feature2Button", "Функция 2", UDim2.new(0.05, 0, 0, buttonY), function()
-    print("Функция 2 активирована")
-end)
-buttonY = buttonY + 45
-
-createMenuButton("Feature3Button", "Функция 3", UDim2.new(0.05, 0, 0, buttonY), function()
-    print("Функция 3 активирована")
+createMenuButton("FlyButton", "Полёт", UDim2.new(0.05, 0, 0, buttonY), function()
+    -- Заглушка для функции полёта
+    print("Функция полёта будет добавлена позже")
 end)
 buttonY = buttonY + 45
 
@@ -154,6 +153,7 @@ toggleButton.MouseButton1Click:Connect(function()
     mainFrame.Visible = isMenuOpen
 end)
 
+-- Обработчик для сенсорных устройств
 toggleButton.TouchTap:Connect(function()
     isMenuOpen = not isMenuOpen
     mainFrame.Visible = isMenuOpen
@@ -195,10 +195,22 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- Обработчик изменения персонажа
-player.CharacterAdded:Connect(function(character)
+player.CharacterAdded:Connect(function(newCharacter)
+    character = newCharacter
+    humanoid = character:WaitForChild("Humanoid")
+    
     if autoJumpEnabled and jumpConnection then
         jumpConnection:Disconnect()
         wait(1) -- Ждем загрузки персонажа
         toggleAutoJump() -- Перезапускаем авто-прыжок
+    end
+end)
+
+-- Обработчик удаления GUI при выходе из игры
+game:GetService("CoreGui").ChildRemoved:Connect(function(child)
+    if child == screenGui then
+        if jumpConnection then
+            jumpConnection:Disconnect()
+        end
     end
 end)
