@@ -2,7 +2,6 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-local TeleportService = game:GetService("TeleportService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -52,12 +51,12 @@ titleLabel.Parent = mainFrame
 -- Переменные для функций
 local autoJumpEnabled = false
 local speedBoostEnabled = false
-local flyEnabled = false
+local noclipEnabled = false
 local jumpConnection = nil
-local flyConnection = nil
+local noclipConnection = nil
 local autoJumpButton = nil
 local speedButton = nil
-local flyButton = nil
+local noclipButton = nil
 
 -- Функция для создания кнопок в меню
 local function createMenuButton(name, text, position, callback)
@@ -92,8 +91,8 @@ local function createMenuButton(name, text, position, callback)
             color = Color3.fromRGB(50, 205, 50)
         elseif button.Name == "SpeedButton" and speedBoostEnabled then
             color = Color3.fromRGB(255, 140, 0)
-        elseif button.Name == "FlyButton" and flyEnabled then
-            color = Color3.fromRGB(148, 0, 211) -- Фиолетовый для полета
+        elseif button.Name == "NoclipButton" and noclipEnabled then
+            color = Color3.fromRGB(148, 0, 211) -- Фиолетовый для ноклипа
         end
         
         local tween = TweenService:Create(
@@ -163,111 +162,79 @@ local function toggleSpeedBoost()
     end
 end
 
--- Функция полета
-local function toggleFly()
-    flyEnabled = not flyEnabled
+-- Функция ноклипа (замена полета)
+local function toggleNoclip()
+    noclipEnabled = not noclipEnabled
     
-    if flyEnabled then
-        -- Включаем полет
-        flyButton.Text = "Полёт: ВКЛ"
-        flyButton.BackgroundColor3 = Color3.fromRGB(148, 0, 211)
+    if noclipEnabled then
+        -- Включаем ноклип
+        noclipButton.Text = "Ноклип: ВКЛ"
+        noclipButton.BackgroundColor3 = Color3.fromRGB(148, 0, 211)
         
-        -- Создаем части для полета
-        local bodyVelocity = Instance.new("BodyVelocity")
-        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-        bodyVelocity.MaxForce = Vector3.new(0, 0, 0)
-        bodyVelocity.Parent = character:FindFirstChild("HumanoidRootPart") or humanoid
+        -- Отключаем коллизии для всех частей персонажа
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
         
-        local bodyGyro = Instance.new("BodyGyro")
-        bodyGyro.MaxTorque = Vector3.new(0, 0, 0)
-        bodyGyro.P = 1000
-        bodyGyro.D = 50
-        bodyGyro.Parent = character:FindFirstChild("HumanoidRootPart") or humanoid
-        
-        -- Включаем управление полетом
-        flyConnection = RunService.Heartbeat:Connect(function()
-            if not flyEnabled or not character or not humanoid then
-                if flyConnection then
-                    flyConnection:Disconnect()
+        -- Создаем соединение для постоянного отключения коллизий
+        noclipConnection = RunService.Stepped:Connect(function()
+            if not noclipEnabled or not character then return end
+            
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
                 end
-                return
-            end
-            
-            local rootPart = character:FindFirstChild("HumanoidRootPart")
-            if not rootPart then return end
-            
-            -- Устанавливаем максимальную силу
-            bodyVelocity.MaxForce = Vector3.new(40000, 40000, 40000)
-            bodyGyro.MaxTorque = Vector3.new(40000, 40000, 40000)
-            
-            -- Стабилизируем положение
-            bodyGyro.CFrame = workspace.CurrentCamera.CFrame
-            
-            -- Управление полетом
-            local direction = Vector3.new(0, 0, 0)
-            local speed = 50
-            
-            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-                direction = direction + workspace.CurrentCamera.CFrame.LookVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-                direction = direction - workspace.CurrentCamera.CFrame.LookVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-                direction = direction - workspace.CurrentCamera.CFrame.RightVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-                direction = direction + workspace.CurrentCamera.CFrame.RightVector
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-                direction = direction + Vector3.new(0, 1, 0)
-            end
-            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-                direction = direction - Vector3.new(0, 1, 0)
-            end
-            
-            -- Применяем движение
-            if direction.Magnitude > 0 then
-                bodyVelocity.Velocity = direction.Unit * speed
-            else
-                bodyVelocity.Velocity = Vector3.new(0, 0, 0)
             end
         end)
     else
-        -- Выключаем полет
-        flyButton.Text = "Полёт: ВЫКЛ"
-        flyButton.BackgroundColor3 = Color3.fromRGB(65, 105, 225)
+        -- Выключаем ноклип
+        noclipButton.Text = "Ноклип: ВЫКЛ"
+        noclipButton.BackgroundColor3 = Color3.fromRGB(65, 105, 225)
         
-        if flyConnection then
-            flyConnection:Disconnect()
+        if noclipConnection then
+            noclipConnection:Disconnect()
         end
         
-        -- Удаляем части для полета
-        local rootPart = character:FindFirstChild("HumanoidRootPart")
-        if rootPart then
-            for _, part in ipairs({rootPart:GetChildren()}) do
-                if part:IsA("BodyVelocity") or part:IsA("BodyGyro") then
-                    part:Destroy()
+        -- Восстанавливаем коллизии для всех частей персонажа
+        if character then
+            for _, part in ipairs(character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
                 end
             end
         end
     end
 end
 
--- Функция выхода из игры
-local function exitGame()
-    -- Пытаемся выйти из игры разными способами
-    pcall(function()
-        TeleportService:Teleport(game.PlaceId, player)
-    end)
+-- Функция выгрузки скрипта (замена выхода из игры)
+local function unloadScript()
+    -- Отключаем все соединения
+    if jumpConnection then
+        jumpConnection:Disconnect()
+    end
     
-    pcall(function()
-        game:Shutdown()
-    end)
+    if noclipConnection then
+        noclipConnection:Disconnect()
+    end
     
-    pcall(function()
-        player:Kick("Выход через меню")
-    end)
+    -- Восстанавливаем стандартные значения
+    if humanoid then
+        humanoid.WalkSpeed = 16
+    end
+    
+    -- Восстанавливаем коллизии, если ноклип был включен
+    if noclipEnabled and character then
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = true
+            end
+        end
+    end
+    
+    -- Удаляем GUI
+    screenGui:Destroy()
 end
 
 -- Создаем кнопки меню
@@ -278,11 +245,11 @@ buttonY = buttonY + 45
 speedButton = createMenuButton("SpeedButton", "Ускорение: ВЫКЛ", UDim2.new(0.05, 0, 0, buttonY), toggleSpeedBoost)
 buttonY = buttonY + 45
 
-flyButton = createMenuButton("FlyButton", "Полёт: ВЫКЛ", UDim2.new(0.05, 0, 0, buttonY), toggleFly)
+noclipButton = createMenuButton("NoclipButton", "Ноклип: ВЫКЛ", UDim2.new(0.05, 0, 0, buttonY), toggleNoclip)
 buttonY = buttonY + 45
 
--- Добавляем кнопку выхода из игры
-createMenuButton("ExitButton", "Выйти из игры", UDim2.new(0.05, 0, 0, buttonY), exitGame)
+-- Добавляем кнопку выгрузки скрипта
+createMenuButton("UnloadButton", "Выгрузить скрипт", UDim2.new(0.05, 0, 0, buttonY), unloadScript)
 buttonY = buttonY + 45
 
 createMenuButton("CloseMenuButton", "Закрыть меню", UDim2.new(0.05, 0, 0, buttonY), function()
@@ -356,12 +323,12 @@ player.CharacterAdded:Connect(function(newCharacter)
         toggleSpeedBoost() -- Перезапускаем ускорение
     end
     
-    if flyEnabled then
-        if flyConnection then
-            flyConnection:Disconnect()
+    if noclipEnabled then
+        if noclipConnection then
+            noclipConnection:Disconnect()
         end
         task.wait(1) -- Ждем загрузки персонажа
-        toggleFly() -- Перезапускаем полет
+        toggleNoclip() -- Перезапускаем ноклип
     end
 end)
 
@@ -371,8 +338,8 @@ game:GetService("CoreGui").ChildRemoved:Connect(function(child)
         if jumpConnection then
             jumpConnection:Disconnect()
         end
-        if flyConnection then
-            flyConnection:Disconnect()
+        if noclipConnection then
+            noclipConnection:Disconnect()
         end
     end
 end)
