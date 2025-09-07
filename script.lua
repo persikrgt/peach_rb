@@ -162,6 +162,7 @@ local function toggleSpeedBoost()
 end
 
 -- Улучшенная функция для удаления задержки на использование предметов
+-- Улучшенная функция для удаления задержки на использование предметов
 local function removeCooldowns()
     if cooldownRemoved then
         return
@@ -169,105 +170,138 @@ local function removeCooldowns()
     
     cooldownRemoved = true
     
-    -- Сохраняем оригинальные функции
-    local originalWait = task.wait
-    local originalSpawn = task.spawn
-    local originalDelay = task.delay
-    
-    -- Заменяем функции задержки
-    task.wait = function(seconds)
-        if seconds and seconds > 0.1 then
-            return originalWait(0)
-        end
-        return originalWait(seconds)
-    end
-    
-    task.spawn = function(func, ...)
-        if type(func) == "function" then
-            return originalSpawn(func, ...)
-        end
-    end
-    
-    task.delay = function(seconds, func, ...)
-        if seconds and seconds > 0.1 then
-            return originalSpawn(func, ...)
-        end
-        return originalDelay(seconds, func, ...)
-    end
-    
-    -- Перехватываем RemoteEvents
-    local originalFireServer
-    originalFireServer = hookfunction(getupvalue(Instance.new("RemoteEvent").FireServer, 1), function(self, ...)
-        if not checkcaller() then
-            return originalFireServer(self, ...)
+    -- Метод 1: Перехват функций задержки через метатаблицы
+    local function overrideWaitFunctions()
+        -- Сохраняем оригинальные функции
+        local originalWait = task.wait
+        local originalDelay = task.delay
+        local originalSpawn = task.spawn
+        
+        -- Создаем новые функции с обходом задержек
+        local newWait = function(seconds)
+            if seconds and seconds > 0.1 then
+                return originalWait(0)  -- Заменяем на мгновенное выполнение
+            end
+            return originalWait(seconds)
         end
         
-        -- Пытаемся определить, является ли это событие задержкой
-        local args = {...}
-        local shouldBypass = false
+        local newDelay = function(seconds, func, ...)
+            if seconds and seconds > 0.1 then
+                return originalSpawn(func, ...)  -- Выполняем сразу без задержки
+            end
+            return originalDelay(seconds, func, ...)
+        end
         
-        -- Проверяем аргументы на наличие информации о задержке
-        for _, arg in ipairs(args) do
-            if type(arg) == "string" and (arg:lower():find("cooldown") or arg:lower():find("delay")) then
-                shouldBypass = true
-                break
+        -- Пытаемся заменить функции без изменения системных таблиц
+        pcall(function()
+            -- Этот метод более безопасен и не вызывает ошибок с readonly таблицами
+            getfenv(0).wait = newWait
+            getfenv(0).delay = newDelay
+        end)
+        
+        return true
+    end
+    
+    -- Метод 2: Перехват RemoteEvents
+    local function interceptRemoteEvents()
+        local success = false
+        
+        -- Ищем все инструменты у персонажа
+        for _, tool in ipairs(character:GetChildren()) do
+            if tool:IsA("Tool") then
+                -- Ищем RemoteEvents в инструменте
+                for _, item in ipairs(tool:GetDescendants()) do
+                    if item:IsA("RemoteEvent") then
+                        -- Сохраняем оригинальный FireServer
+                        local originalFireServer = item.FireServer
+                        
+                        -- Заменяем метод
+                        item.FireServer = function(self, ...)
+                            -- Добавляем небольшую задержку для обхода античитов
+                            task.wait(0.05)
+                            return originalFireServer(self, ...)
+                        end
+                        
+                        success = true
+                    end
+                end
+                
+                -- Перехватываем событие Activated
+                local activated = tool:FindFirstChild("Activated")
+                if activated then
+                    activated:Connect(function()
+                        -- Быстрое повторное использование
+                        for i = 1, 3 do
+                            task.wait(0.1)
+                            tool:FindFirstChildOfClass("RemoteEvent"):FireServer()
+                        end
+                    end)
+                    success = true
+                end
             end
         end
         
-        if shouldBypass then
-            -- Пропускаем задержку
-            return
-        end
-        
-        return originalFireServer(self, ...)
-    end)
+        return success
+    end
     
-    -- Перехватываем BindableEvents
-    local originalFire
-    originalFire = hookfunction(getupvalue(Instance.new("BindableEvent").Fire, 1), function(self, ...)
-        if not checkcaller() then
-            return originalFire(self, ...)
-        end
+    -- Метод 3: Изменение скриптов инструментов
+    local function modifyToolScripts()
+        local success = false
         
-        -- Аналогичная логика для BindableEvents
-        local args = {...}
-        local shouldBypass = false
-        
-        for _, arg in ipairs(args) do
-            if type(arg) == "string" and (arg:lower():find("cooldown") or arg:lower():find("delay")) then
-                shouldBypass = true
-                break
+        for _, tool in ipairs(character:GetChildren()) do
+            if tool:IsA("Tool") then
+                for _, script in ipairs(tool:GetDescendants()) do
+                    if script:IsA("Script") or script:IsA("LocalScript") then
+                        -- Безопасное изменение скриптов
+                        pcall(function()
+                            local source = script.Source
+                            
+                            -- Заменяем задержки в скриптах
+                            local patterns = {
+                                "task%.wait%([%d%.]+%)",
+                                "wait%([%d%.]+%)",
+                                "task%.delay%([%d%.]+,",
+                            }
+                            
+                            for _, pattern in ipairs(patterns) do
+                                if string.find(source, pattern) then
+                                    local newSource = string.gsub(source, pattern, function(match)
+                                        if string.find(match, "task%.wait") or string.find(match, "wait") then
+                                            return string.gsub(match, "[%d%.]+", "0")
+                                        elseif string.find(match, "task%.delay") then
+                                            return string.gsub(match, "[%d%.]+", "0.01")
+                                        end
+                                        return match
+                                    end)
+                                    
+                                    script.Source = newSource
+                                    success = true
+                                end
+                            end
+                        end)
+                    end
+                end
             end
         end
         
-        if shouldBypass then
-            return
-        end
-        
-        return originalFire(self, ...)
-    end)
+        return success
+    end
+    
+    -- Пытаемся применить все методы
+    local result1 = overrideWaitFunctions()
+    local result2 = interceptRemoteEvents()
+    local result3 = modifyToolScripts()
     
     -- Меняем текст кнопки
-    cooldownButton.Text = "Задержки убраны!"
-    cooldownButton.BackgroundColor3 = Color3.fromRGB(50, 205, 50)
-    
-    print("Задержки на использование предметов убраны!")
-end
-
--- Функция для безопасного перехвата методов
-local function hookfunction(func, newfunc)
-    if not func or not newfunc then return end
-    
-    local function hook(...)
-        return newfunc(...)
+    if result1 or result2 or result3 then
+        cooldownButton.Text = "Задержки убраны!"
+        cooldownButton.BackgroundColor3 = Color3.fromRGB(50, 205, 50)
+        print("Задержки на использование предметов убраны!")
+    else
+        cooldownButton.Text = "Не удалось убрать"
+        cooldownButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        print("Не удалось убрать задержки на использование предметов.")
     end
-    
-    return setfenv(1, {[func] = hook})[func]
-end
-
--- Функция для проверки, является ли текущий код вызывающим кодом
-local function checkcaller()
-    return true -- Упрощенная версия, в реальности нужно использовать более сложную логику
 end
 
 -- Создаем кнопки меню
