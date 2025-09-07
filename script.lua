@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local TeleportService = game:GetService("TeleportService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -51,11 +52,12 @@ titleLabel.Parent = mainFrame
 -- Переменные для функций
 local autoJumpEnabled = false
 local speedBoostEnabled = false
+local flyEnabled = false
 local jumpConnection = nil
+local flyConnection = nil
 local autoJumpButton = nil
 local speedButton = nil
-local cooldownButton = nil
-local cooldownRemoved = false
+local flyButton = nil
 
 -- Функция для создания кнопок в меню
 local function createMenuButton(name, text, position, callback)
@@ -90,8 +92,8 @@ local function createMenuButton(name, text, position, callback)
             color = Color3.fromRGB(50, 205, 50)
         elseif button.Name == "SpeedButton" and speedBoostEnabled then
             color = Color3.fromRGB(255, 140, 0)
-        elseif button.Name == "CooldownButton" and cooldownRemoved then
-            color = Color3.fromRGB(50, 205, 50)
+        elseif button.Name == "FlyButton" and flyEnabled then
+            color = Color3.fromRGB(148, 0, 211) -- Фиолетовый для полета
         end
         
         local tween = TweenService:Create(
@@ -143,7 +145,7 @@ local function toggleSpeedBoost()
     if speedBoostEnabled then
         -- Увеличиваем скорость
         if humanoid then
-            humanoid.WalkSpeed = 45
+            humanoid.WalkSpeed = 32
         end
         
         -- Обновляем текст кнопки
@@ -152,7 +154,7 @@ local function toggleSpeedBoost()
     else
         -- Возвращаем обычную скорость
         if humanoid then
-            humanoid.WalkSpeed = 25
+            humanoid.WalkSpeed = 16
         end
         
         -- Обновляем текст кнопки
@@ -161,115 +163,111 @@ local function toggleSpeedBoost()
     end
 end
 
--- Улучшенная функция для удаления задержки на использование предметов
--- Улучшенная функция для удаления задержки на использование предметов
--- Улучшенная функция для удаления задержки на использование предметов
-local function removeCooldowns()
-    if cooldownRemoved then
-        return
-    end
+-- Функция полета
+local function toggleFly()
+    flyEnabled = not flyEnabled
     
-    cooldownRemoved = true
-    
-    -- Метод 1: Перехват событий активации инструментов
-    local function interceptToolActivation()
-        local success = false
+    if flyEnabled then
+        -- Включаем полет
+        flyButton.Text = "Полёт: ВКЛ"
+        flyButton.BackgroundColor3 = Color3.fromRGB(148, 0, 211)
         
-        -- Ищем все инструменты у персонажа
-        for _, tool in ipairs(character:GetChildren()) do
-            if tool:IsA("Tool") then
-                -- Перехватываем событие Activated
-                local activated = tool:FindFirstChild("Activated")
-                if activated then
-                    -- Сохраняем оригинальное соединение
-                    local originalConnection
-                    for _, connection in ipairs(getconnections(activated)) do
-                        originalConnection = connection
-                        break
-                    end
-                    
-                    -- Отключаем оригинальное соединение
-                    if originalConnection then
-                        originalConnection:Disconnect()
-                    end
-                    
-                    -- Создаем новое соединение с быстрым повторным использованием
-                    activated:Connect(function()
-                        -- Вызываем оригинальный метод, но без задержек
-                        local remote = tool:FindFirstChildOfClass("RemoteEvent")
-                        if remote then
-                            for i = 1, 3 do -- Повторяем несколько раз для надежности
-                                remote:FireServer()
-                                task.wait(0.05) -- Небольшая задержка между вызовами
-                            end
-                        end
-                    end)
-                    
-                    success = true
+        -- Создаем части для полета
+        local bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        bodyVelocity.MaxForce = Vector3.new(0, 0, 0)
+        bodyVelocity.Parent = character:FindFirstChild("HumanoidRootPart") or humanoid
+        
+        local bodyGyro = Instance.new("BodyGyro")
+        bodyGyro.MaxTorque = Vector3.new(0, 0, 0)
+        bodyGyro.P = 1000
+        bodyGyro.D = 50
+        bodyGyro.Parent = character:FindFirstChild("HumanoidRootPart") or humanoid
+        
+        -- Включаем управление полетом
+        flyConnection = RunService.Heartbeat:Connect(function()
+            if not flyEnabled or not character or not humanoid then
+                if flyConnection then
+                    flyConnection:Disconnect()
                 end
+                return
             end
-        end
-        
-        return success
-    end
-    
-    -- Метод 2: Изменение скриптов инструментов (только если возможно)
-    local function modifyToolScripts()
-        local success = false
-        
-        for _, tool in ipairs(character:GetChildren()) do
-            if tool:IsA("Tool") then
-                for _, script in ipairs(tool:GetDescendants()) do
-                    if script:IsA("Script") or script:IsA("LocalScript") then
-                        -- Безопасное изменение скриптов
-                        pcall(function()
-                            local source = script.Source
-                            
-                            -- Заменяем задержки в скриптах
-                            local patterns = {
-                                "task%.wait%([%d%.]+%)",
-                                "wait%([%d%.]+%)",
-                                "task%.delay%([%d%.]+,",
-                            }
-                            
-                            for _, pattern in ipairs(patterns) do
-                                if string.find(source, pattern) then
-                                    local newSource = string.gsub(source, pattern, function(match)
-                                        if string.find(match, "task%.wait") or string.find(match, "wait") then
-                                            return string.gsub(match, "[%d%.]+", "0.01")
-                                        elseif string.find(match, "task%.delay") then
-                                            return string.gsub(match, "[%d%.]+", "0.01")
-                                        end
-                                        return match
-                                    end)
-                                    
-                                    script.Source = newSource
-                                    success = true
-                                end
-                            end
-                        end)
-                    end
-                end
+            
+            local rootPart = character:FindFirstChild("HumanoidRootPart")
+            if not rootPart then return end
+            
+            -- Устанавливаем максимальную силу
+            bodyVelocity.MaxForce = Vector3.new(40000, 40000, 40000)
+            bodyGyro.MaxTorque = Vector3.new(40000, 40000, 40000)
+            
+            -- Стабилизируем положение
+            bodyGyro.CFrame = workspace.CurrentCamera.CFrame
+            
+            -- Управление полетом
+            local direction = Vector3.new(0, 0, 0)
+            local speed = 50
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                direction = direction + workspace.CurrentCamera.CFrame.LookVector
             end
-        end
-        
-        return success
-    end
-    
-    -- Пытаемся применить методы
-    local result1 = interceptToolActivation()
-    local result2 = modifyToolScripts()
-    
-    -- Меняем текст кнопки
-    if result1 or result2 then
-        cooldownButton.Text = "Задержки убраны!"
-        cooldownButton.BackgroundColor3 = Color3.fromRGB(50, 205, 50)
-        print("Задержки на использование предметов убраны!")
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                direction = direction - workspace.CurrentCamera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                direction = direction - workspace.CurrentCamera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                direction = direction + workspace.CurrentCamera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                direction = direction + Vector3.new(0, 1, 0)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+                direction = direction - Vector3.new(0, 1, 0)
+            end
+            
+            -- Применяем движение
+            if direction.Magnitude > 0 then
+                bodyVelocity.Velocity = direction.Unit * speed
+            else
+                bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+            end
+        end)
     else
-        cooldownButton.Text = "Не удалось убрать"
-        cooldownButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-        print("Не удалось убрать задержки на использование предметов.")
+        -- Выключаем полет
+        flyButton.Text = "Полёт: ВЫКЛ"
+        flyButton.BackgroundColor3 = Color3.fromRGB(65, 105, 225)
+        
+        if flyConnection then
+            flyConnection:Disconnect()
+        end
+        
+        -- Удаляем части для полета
+        local rootPart = character:FindFirstChild("HumanoidRootPart")
+        if rootPart then
+            for _, part in ipairs({rootPart:GetChildren()}) do
+                if part:IsA("BodyVelocity") or part:IsA("BodyGyro") then
+                    part:Destroy()
+                end
+            end
+        end
     end
+end
+
+-- Функция выхода из игры
+local function exitGame()
+    -- Пытаемся выйти из игры разными способами
+    pcall(function()
+        TeleportService:Teleport(game.PlaceId, player)
+    end)
+    
+    pcall(function()
+        game:Shutdown()
+    end)
+    
+    pcall(function()
+        player:Kick("Выход через меню")
+    end)
 end
 
 -- Создаем кнопки меню
@@ -280,14 +278,11 @@ buttonY = buttonY + 45
 speedButton = createMenuButton("SpeedButton", "Ускорение: ВЫКЛ", UDim2.new(0.05, 0, 0, buttonY), toggleSpeedBoost)
 buttonY = buttonY + 45
 
-cooldownButton = createMenuButton("CooldownButton", "Убрать задержки", UDim2.new(0.05, 0, 0, buttonY), removeCooldowns)
+flyButton = createMenuButton("FlyButton", "Полёт: ВЫКЛ", UDim2.new(0.05, 0, 0, buttonY), toggleFly)
 buttonY = buttonY + 45
 
--- Добавляем другие кнопки (заглушки для будущих функций)
-createMenuButton("FlyButton", "Полёт", UDim2.new(0.05, 0, 0, buttonY), function()
-    -- Заглушка для функции полёта
-    print("Функция полёта будет добавлена позже")
-end)
+-- Добавляем кнопку выхода из игры
+createMenuButton("ExitButton", "Выйти из игры", UDim2.new(0.05, 0, 0, buttonY), exitGame)
 buttonY = buttonY + 45
 
 createMenuButton("CloseMenuButton", "Закрыть меню", UDim2.new(0.05, 0, 0, buttonY), function()
@@ -361,10 +356,13 @@ player.CharacterAdded:Connect(function(newCharacter)
         toggleSpeedBoost() -- Перезапускаем ускорение
     end
     
-    -- Сбрасываем статус удаления задержек
-    cooldownRemoved = false
-    cooldownButton.Text = "Убрать задержки"
-    cooldownButton.BackgroundColor3 = Color3.fromRGB(65, 105, 225)
+    if flyEnabled then
+        if flyConnection then
+            flyConnection:Disconnect()
+        end
+        task.wait(1) -- Ждем загрузки персонажа
+        toggleFly() -- Перезапускаем полет
+    end
 end)
 
 -- Обработчик удаления GUI при выходе из игры
@@ -372,6 +370,9 @@ game:GetService("CoreGui").ChildRemoved:Connect(function(child)
     if child == screenGui then
         if jumpConnection then
             jumpConnection:Disconnect()
+        end
+        if flyConnection then
+            flyConnection:Disconnect()
         end
     end
 end)
