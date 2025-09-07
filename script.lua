@@ -55,6 +55,7 @@ local jumpConnection = nil
 local autoJumpButton = nil
 local speedButton = nil
 local cooldownButton = nil
+local cooldownRemoved = false
 
 -- Функция для создания кнопок в меню
 local function createMenuButton(name, text, position, callback)
@@ -89,8 +90,8 @@ local function createMenuButton(name, text, position, callback)
             color = Color3.fromRGB(50, 205, 50)
         elseif button.Name == "SpeedButton" and speedBoostEnabled then
             color = Color3.fromRGB(255, 140, 0)
-        elseif button.Name == "CooldownButton" then
-            color = Color3.fromRGB(65, 105, 225) -- Обычный цвет для кнопки задержек
+        elseif button.Name == "CooldownButton" and cooldownRemoved then
+            color = Color3.fromRGB(50, 205, 50)
         end
         
         local tween = TweenService:Create(
@@ -142,7 +143,7 @@ local function toggleSpeedBoost()
     if speedBoostEnabled then
         -- Увеличиваем скорость
         if humanoid then
-            humanoid.WalkSpeed = 60
+            humanoid.WalkSpeed = 45
         end
         
         -- Обновляем текст кнопки
@@ -160,88 +161,113 @@ local function toggleSpeedBoost()
     end
 end
 
--- Функция для удаления задержки на использование предметов
+-- Улучшенная функция для удаления задержки на использование предметов
 local function removeCooldowns()
-    -- Сохраняем оригинальный wait
-    local originalWait = wait
+    if cooldownRemoved then
+        return
+    end
     
-    -- Заменяем глобальную функцию wait
-    local function newWait(seconds)
-        if seconds and seconds > 0.1 then  -- Если задержка больше 0.1 секунды
-            return originalWait(0)  -- Заменяем на мгновенное выполнение
+    cooldownRemoved = true
+    
+    -- Сохраняем оригинальные функции
+    local originalWait = task.wait
+    local originalSpawn = task.spawn
+    local originalDelay = task.delay
+    
+    -- Заменяем функции задержки
+    task.wait = function(seconds)
+        if seconds and seconds > 0.1 then
+            return originalWait(0)
         end
         return originalWait(seconds)
     end
     
-    getfenv(0).wait = newWait
-    
-    -- Ищем все инструменты у персонажа
-    for _, tool in ipairs(character:GetChildren()) do
-        if tool:IsA("Tool") then
-            -- Ищем скрипты внутри инструмента
-            for _, script in ipairs(tool:GetDescendants()) do
-                if script:IsA("Script") or script:IsA("LocalScript") then
-                    -- Пытаемся найти и изменить переменные задержки
-                    local source = script.Source
-                    
-                    -- Заменяем различные варианты задержек
-                    local patterns = {
-                        "cooldown%s*=%s*[%d%.]+",
-                        "Cooldown%s*=%s*[%d%.]+",
-                        "CD%s*=%s*[%d%.]+",
-                        "delay%s*=%s*[%d%.]+",
-                        "Delay%s*=%s*[%d%.]+",
-                        "wait%([%d%.]+%)",
-                    }
-                    
-                    for _, pattern in ipairs(patterns) do
-                        if string.find(source, pattern) then
-                            -- Заменяем значения задержек на 0
-                            local newSource = string.gsub(source, pattern, function(match)
-                                if string.find(match, "wait") then
-                                    return "wait(0)"
-                                else
-                                    return string.gsub(match, "[%d%.]+", "0")
-                                end
-                            end)
-                            
-                            -- Применяем изменения
-                            pcall(function()
-                                script.Source = newSource
-                            end)
-                        end
-                    end
-                end
-            end
-            
-            -- Также проверяем события активации инструмента
-            local activated = tool:FindFirstChild("Activated")
-            if activated then
-                activated:Connect(function()
-                    -- Пытаемся обойти задержку через переподключение
-                    local remote = tool:FindFirstChildOfClass("RemoteEvent")
-                    if remote then
-                        remote:FireServer()
-                    end
-                end)
-            end
+    task.spawn = function(func, ...)
+        if type(func) == "function" then
+            return originalSpawn(func, ...)
         end
     end
     
-    -- Меняем текст кнопки на короткое время
-    local originalText = cooldownButton.Text
+    task.delay = function(seconds, func, ...)
+        if seconds and seconds > 0.1 then
+            return originalSpawn(func, ...)
+        end
+        return originalDelay(seconds, func, ...)
+    end
+    
+    -- Перехватываем RemoteEvents
+    local originalFireServer
+    originalFireServer = hookfunction(getupvalue(Instance.new("RemoteEvent").FireServer, 1), function(self, ...)
+        if not checkcaller() then
+            return originalFireServer(self, ...)
+        end
+        
+        -- Пытаемся определить, является ли это событие задержкой
+        local args = {...}
+        local shouldBypass = false
+        
+        -- Проверяем аргументы на наличие информации о задержке
+        for _, arg in ipairs(args) do
+            if type(arg) == "string" and (arg:lower():find("cooldown") or arg:lower():find("delay")) then
+                shouldBypass = true
+                break
+            end
+        end
+        
+        if shouldBypass then
+            -- Пропускаем задержку
+            return
+        end
+        
+        return originalFireServer(self, ...)
+    end)
+    
+    -- Перехватываем BindableEvents
+    local originalFire
+    originalFire = hookfunction(getupvalue(Instance.new("BindableEvent").Fire, 1), function(self, ...)
+        if not checkcaller() then
+            return originalFire(self, ...)
+        end
+        
+        -- Аналогичная логика для BindableEvents
+        local args = {...}
+        local shouldBypass = false
+        
+        for _, arg in ipairs(args) do
+            if type(arg) == "string" and (arg:lower():find("cooldown") or arg:lower():find("delay")) then
+                shouldBypass = true
+                break
+            end
+        end
+        
+        if shouldBypass then
+            return
+        end
+        
+        return originalFire(self, ...)
+    end)
+    
+    -- Меняем текст кнопки
     cooldownButton.Text = "Задержки убраны!"
     cooldownButton.BackgroundColor3 = Color3.fromRGB(50, 205, 50)
     
-    -- Через 2 секунды возвращаем исходный текст
-    delay(2, function()
-        if cooldownButton then
-            cooldownButton.Text = originalText
-            cooldownButton.BackgroundColor3 = Color3.fromRGB(65, 105, 225)
-        end
-    end)
-    
     print("Задержки на использование предметов убраны!")
+end
+
+-- Функция для безопасного перехвата методов
+local function hookfunction(func, newfunc)
+    if not func or not newfunc then return end
+    
+    local function hook(...)
+        return newfunc(...)
+    end
+    
+    return setfenv(1, {[func] = hook})[func]
+end
+
+-- Функция для проверки, является ли текущий код вызывающим кодом
+local function checkcaller()
+    return true -- Упрощенная версия, в реальности нужно использовать более сложную логику
 end
 
 -- Создаем кнопки меню
@@ -324,14 +350,19 @@ player.CharacterAdded:Connect(function(newCharacter)
         if jumpConnection then
             jumpConnection:Disconnect()
         end
-        wait(1) -- Ждем загрузки персонажа
+        task.wait(1) -- Ждем загрузки персонажа
         toggleAutoJump() -- Перезапускаем авто-прыжок
     end
     
     if speedBoostEnabled then
-        wait(1) -- Ждем загрузки персонажа
+        task.wait(1) -- Ждем загрузки персонажа
         toggleSpeedBoost() -- Перезапускаем ускорение
     end
+    
+    -- Сбрасываем статус удаления задержек
+    cooldownRemoved = false
+    cooldownButton.Text = "Убрать задержки"
+    cooldownButton.BackgroundColor3 = Color3.fromRGB(65, 105, 225)
 end)
 
 -- Обработчик удаления GUI при выходе из игры
@@ -342,15 +373,3 @@ game:GetService("CoreGui").ChildRemoved:Connect(function(child)
         end
     end
 end)
-
--- Функция задержки (аналог wait, но не переопределяемый)
-local function delay(time, callback)
-    local start = tick()
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        if tick() - start >= time then
-            connection:Disconnect()
-            callback()
-        end
-    end)
-end
