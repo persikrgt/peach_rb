@@ -163,6 +163,7 @@ end
 
 -- Улучшенная функция для удаления задержки на использование предметов
 -- Улучшенная функция для удаления задержки на использование предметов
+-- Улучшенная функция для удаления задержки на использование предметов
 local function removeCooldowns()
     if cooldownRemoved then
         return
@@ -170,72 +171,40 @@ local function removeCooldowns()
     
     cooldownRemoved = true
     
-    -- Метод 1: Перехват функций задержки через метатаблицы
-    local function overrideWaitFunctions()
-        -- Сохраняем оригинальные функции
-        local originalWait = task.wait
-        local originalDelay = task.delay
-        local originalSpawn = task.spawn
-        
-        -- Создаем новые функции с обходом задержек
-        local newWait = function(seconds)
-            if seconds and seconds > 0.1 then
-                return originalWait(0)  -- Заменяем на мгновенное выполнение
-            end
-            return originalWait(seconds)
-        end
-        
-        local newDelay = function(seconds, func, ...)
-            if seconds and seconds > 0.1 then
-                return originalSpawn(func, ...)  -- Выполняем сразу без задержки
-            end
-            return originalDelay(seconds, func, ...)
-        end
-        
-        -- Пытаемся заменить функции без изменения системных таблиц
-        pcall(function()
-            -- Этот метод более безопасен и не вызывает ошибок с readonly таблицами
-            getfenv(0).wait = newWait
-            getfenv(0).delay = newDelay
-        end)
-        
-        return true
-    end
-    
-    -- Метод 2: Перехват RemoteEvents
-    local function interceptRemoteEvents()
+    -- Метод 1: Перехват событий активации инструментов
+    local function interceptToolActivation()
         local success = false
         
         -- Ищем все инструменты у персонажа
         for _, tool in ipairs(character:GetChildren()) do
             if tool:IsA("Tool") then
-                -- Ищем RemoteEvents в инструменте
-                for _, item in ipairs(tool:GetDescendants()) do
-                    if item:IsA("RemoteEvent") then
-                        -- Сохраняем оригинальный FireServer
-                        local originalFireServer = item.FireServer
-                        
-                        -- Заменяем метод
-                        item.FireServer = function(self, ...)
-                            -- Добавляем небольшую задержку для обхода античитов
-                            task.wait(0.05)
-                            return originalFireServer(self, ...)
-                        end
-                        
-                        success = true
-                    end
-                end
-                
                 -- Перехватываем событие Activated
                 local activated = tool:FindFirstChild("Activated")
                 if activated then
+                    -- Сохраняем оригинальное соединение
+                    local originalConnection
+                    for _, connection in ipairs(getconnections(activated)) do
+                        originalConnection = connection
+                        break
+                    end
+                    
+                    -- Отключаем оригинальное соединение
+                    if originalConnection then
+                        originalConnection:Disconnect()
+                    end
+                    
+                    -- Создаем новое соединение с быстрым повторным использованием
                     activated:Connect(function()
-                        -- Быстрое повторное использование
-                        for i = 1, 3 do
-                            task.wait(0.1)
-                            tool:FindFirstChildOfClass("RemoteEvent"):FireServer()
+                        -- Вызываем оригинальный метод, но без задержек
+                        local remote = tool:FindFirstChildOfClass("RemoteEvent")
+                        if remote then
+                            for i = 1, 3 do -- Повторяем несколько раз для надежности
+                                remote:FireServer()
+                                task.wait(0.05) -- Небольшая задержка между вызовами
+                            end
                         end
                     end)
+                    
                     success = true
                 end
             end
@@ -244,7 +213,7 @@ local function removeCooldowns()
         return success
     end
     
-    -- Метод 3: Изменение скриптов инструментов
+    -- Метод 2: Изменение скриптов инструментов (только если возможно)
     local function modifyToolScripts()
         local success = false
         
@@ -267,7 +236,7 @@ local function removeCooldowns()
                                 if string.find(source, pattern) then
                                     local newSource = string.gsub(source, pattern, function(match)
                                         if string.find(match, "task%.wait") or string.find(match, "wait") then
-                                            return string.gsub(match, "[%d%.]+", "0")
+                                            return string.gsub(match, "[%d%.]+", "0.01")
                                         elseif string.find(match, "task%.delay") then
                                             return string.gsub(match, "[%d%.]+", "0.01")
                                         end
@@ -287,13 +256,12 @@ local function removeCooldowns()
         return success
     end
     
-    -- Пытаемся применить все методы
-    local result1 = overrideWaitFunctions()
-    local result2 = interceptRemoteEvents()
-    local result3 = modifyToolScripts()
+    -- Пытаемся применить методы
+    local result1 = interceptToolActivation()
+    local result2 = modifyToolScripts()
     
     -- Меняем текст кнопки
-    if result1 or result2 or result3 then
+    if result1 or result2 then
         cooldownButton.Text = "Задержки убраны!"
         cooldownButton.BackgroundColor3 = Color3.fromRGB(50, 205, 50)
         print("Задержки на использование предметов убраны!")
