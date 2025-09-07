@@ -142,7 +142,7 @@ local function toggleSpeedBoost()
     if speedBoostEnabled then
         -- Увеличиваем скорость
         if humanoid then
-            humanoid.WalkSpeed = 32
+            humanoid.WalkSpeed = 60
         end
         
         -- Обновляем текст кнопки
@@ -151,7 +151,7 @@ local function toggleSpeedBoost()
     else
         -- Возвращаем обычную скорость
         if humanoid then
-            humanoid.WalkSpeed = 16
+            humanoid.WalkSpeed = 25
         end
         
         -- Обновляем текст кнопки
